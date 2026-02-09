@@ -1,0 +1,81 @@
+name: Build Bazzite 6.12 Kernel with 350MHz Patch
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"  # 每周日 UTC 3:00 运行一次，可改
+  workflow_dispatch:
+
+jobs:
+  build-patched-kernel:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:42  # 或 fedora:40/41，根据 Bazzite 依赖调整
+
+    steps:
+      - name: Install Build Dependencies
+        run: |
+          dnf install -y git rpm-build rpmdevtools fedpkg make gcc flex bison bc elfutils-libelf-devel openssl-devel dwarves perl-interpreter python3-sphinx perl-ExtUtils-Embed pahole cpio perl-devel diffutils
+
+      - name: Setup RPM build tree
+        run: rpmdev-setuptree
+
+      - name: Checkout kernel-bazzite 6.12 branch
+        run: |
+          git clone --depth 1 --branch bazzite-6.12 https://github.com/bazzite-org/kernel-bazzite.git kernel-source
+          cd kernel-source
+
+      - name: Copy and Apply BC-250 350MHz Patch
+        run: |
+          cp ${{ github.workspace }}/linux-kernel-bc250.patch kernel-source/
+          cd kernel-source
+          # 使用 -p2 因为补丁路径有 linux/ 前缀
+          patch -p2 < linux-kernel-bc250.patch || {
+            echo "Patch failed with -p2, trying -p1..."
+            patch -p1 < linux-kernel-bc250.patch
+          }
+
+      - name: Verify Patch Applied
+        run: |
+          cd kernel-source
+          if grep -q "CYAN_SKILLFISH_SCLK_MIN 350" drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c; then
+            echo "SUCCESS: 350 MHz patch applied!"
+          else
+            echo "ERROR: Patch not applied correctly!"
+            exit 1
+          fi
+
+      - name: Build Kernel RPMs
+        run: |
+          cd kernel-source
+          # 如果仓库有自己的 build 脚本，用它；否则用标准方式
+          if [ -f build.sh ] || [ -f Makefile.rpm ]; then
+            # 如果有自定义构建脚本，运行它（视仓库而定）
+            ./build.sh || make -j$(nproc) rpm-pkg
+          else
+            # 标准 kernel rpm 构建方式
+            make -j$(nproc) rpm-pkg \
+              LOCALVERSION=-bazzite-bc250-patched \
+              KBUILD_BUILD_USER=vietsman \
+              KBUILD_BUILD_HOST=github-actions
+          fi
+
+      - name: Upload RPM Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bazzite-6.12-patched-rpms
+          path: kernel-source/*.rpm
+          retention-days: 7
+
+      # 可选：发布到 Release（需要配置 GITHUB_TOKEN 权限）
+      - name: Create Release and Upload
+        if: github.event_name == 'workflow_dispatch'  # 只在手动触发时发布
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: bazzite-6.12-patched-${{ github.run_number }}
+          name: Bazzite 6.12 with 350MHz Patch - Build ${{ github.run_number }}
+          files: kernel-source/*.rpm
+          body: |
+            Auto-built Bazzite 6.12 kernel with BC-250 350MHz GPU frequency patch.
+            - Patch: linux-kernel-bc250.patch
+            - Min clock: 350 MHz
+            - Max clock: 2230 MHz
