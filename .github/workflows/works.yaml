@@ -23,16 +23,29 @@ jobs:
         run: |
           git clone --depth 1 --branch bazzite-6.12 https://github.com/bazzite-org/kernel-bazzite.git kernel-source
           cd kernel-source
-
+          
       - name: Copy and Apply BC-250 350MHz Patch
         run: |
-          cp ${{ github.workspace }}/linux-kernel-bc250.patch kernel-source/
-          cd kernel-source
-          # 使用 -p2 因为补丁路径有 linux/ 前缀
-          patch -p2 < linux-kernel-bc250.patch || {
-            echo "Patch failed with -p2, trying -p1..."
-            patch -p1 < linux-kernel-bc250.patch
+          echo "当前工作目录：$(pwd)"
+          ls -la | grep patch   # 先看看补丁文件是否存在
+      
+          # 补丁已经在仓库根目录，直接复制到 kernel-source/
+          cp linux-kernel-bc250.patch kernel-source/ || {
+            echo "补丁文件 linux-kernel-bc250.patch 不存在！请确认已提交到仓库根目录"
+            exit 1
           }
+      
+          cd kernel-source
+      
+          echo "尝试应用补丁（-p2）..."
+          if patch -p2 < linux-kernel-bc250.patch; then
+            echo "补丁使用 -p2 成功应用"
+          elif patch -p1 < linux-kernel-bc250.patch; then
+            echo "补丁使用 -p1 成功应用"
+          else
+            echo "补丁应用失败！请检查路径或补丁内容"
+            exit 1
+          fi
 
       - name: Verify Patch Applied
         run: |
