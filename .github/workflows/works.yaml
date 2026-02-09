@@ -24,38 +24,46 @@ jobs:
           git clone --depth 1 --branch bazzite-6.12 https://github.com/bazzite-org/kernel-bazzite.git kernel-source
           cd kernel-source
           
-      - name: Copy and Apply BC-250 350MHz Patch
+      - name: Apply BC-250 350MHz Patch
         run: |
-          echo "当前工作目录：$(pwd)"
-          ls -la | grep patch   # 先看看补丁文件是否存在
+          # 调试：显示当前目录和文件列表
+          pwd
+          echo "仓库根目录文件列表："
+          ls -la
       
-          # 补丁已经在仓库根目录，直接复制到 kernel-source/
-          cp linux-kernel-bc250.patch kernel-source/ || {
-            echo "补丁文件 linux-kernel-bc250.patch 不存在！请确认已提交到仓库根目录"
+          # 检查补丁文件是否存在
+          if [ ! -f linux-kernel-bc250.patch ]; then
+            echo "错误：linux-kernel-bc250.patch 文件在根目录不存在！"
             exit 1
+          fi
+      
+          echo "补丁文件存在，开始应用..."
+      
+          cd kernel-source
+      
+          # 尝试应用补丁，使用 ../ 因为补丁在上一级目录（根目录）
+          patch -p2 ../linux-kernel-bc250.patch && {
+            echo "补丁使用 -p2 成功应用"
+          } || {
+            echo "p2 失败，尝试 p1..."
+            patch -p1 ../linux-kernel-bc250.patch && {
+              echo "补丁使用 -p1 成功应用"
+            } || {
+              echo "补丁应用失败，请检查补丁内容或路径"
+              exit 1
+            }
           }
       
-          cd kernel-source
-      
-          echo "尝试应用补丁（-p2）..."
-          if patch -p2 < linux-kernel-bc250.patch; then
-            echo "补丁使用 -p2 成功应用"
-          elif patch -p1 < linux-kernel-bc250.patch; then
-            echo "补丁使用 -p1 成功应用"
-          else
-            echo "补丁应用失败！请检查路径或补丁内容"
-            exit 1
-          fi
-
-      - name: Verify Patch Applied
-        run: |
-          cd kernel-source
-          if grep -q "CYAN_SKILLFISH_SCLK_MIN 350" drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c; then
-            echo "SUCCESS: 350 MHz patch applied!"
-          else
-            echo "ERROR: Patch not applied correctly!"
-            exit 1
-          fi
+          echo "补丁应用完成"
+            - name: Verify Patch Applied
+              run: |
+                cd kernel-source
+                if grep -q "CYAN_SKILLFISH_SCLK_MIN 350" drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c; then
+                  echo "SUCCESS: 350 MHz patch applied!"
+                else
+                  echo "ERROR: Patch not applied correctly!"
+                  exit 1
+                fi
 
       - name: Build Kernel RPMs
         run: |
